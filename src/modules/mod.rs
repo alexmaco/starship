@@ -67,7 +67,7 @@ use std::time::Instant;
 pub async fn handle<'a>(module: &str, context: &'a Context<'a>) -> Option<Module<'a>> {
     let start: Instant = Instant::now();
 
-    let mut m: Option<Module> = {
+    let async_mod = async {
         match module {
             // Keep these ordered alphabetically.
             // Default ordering is handled in configs/starship_root.rs
@@ -132,6 +132,12 @@ pub async fn handle<'a>(module: &str, context: &'a Context<'a>) -> Option<Module
                 None
             }
         }
+    };
+
+    let mut m = if let Some(dur) = context.module_timeout(module) {
+        async_std::future::timeout(dur, async_mod).await.ok()?
+    } else {
+        async_mod.await
     };
 
     let elapsed = start.elapsed();
