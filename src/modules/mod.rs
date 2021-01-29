@@ -114,7 +114,7 @@ pub async fn handle<'a>(module: &str, context: &'a Context<'a>) -> Option<Module
             "purescript" => purescript::module(context),
             "python" => python::module(context),
             "ruby" => ruby::module(context),
-            "rust" => rust::module(context),
+            "rust" => rust::module(context).await,
             "scala" => scala::module(context),
             "shell" => shell::module(context),
             "shlvl" => shlvl::module(context),
