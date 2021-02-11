@@ -1,12 +1,14 @@
+use futures::pin_mut;
+use futures::stream::{self, StreamExt};
 use ini::Ini;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::{Context, Module, RootModuleConfig};
 use crate::configs::python::PythonConfig;
 use crate::formatter::StringFormatter;
 
 /// Creates a module with the current Python version and, if active, virtual environment.
-pub fn module<'a>(context: &'a Context) -> Option<Module<'a>> {
+pub async fn module<'a>(context: &'a Context<'a>) -> Option<Module<'a>> {
     let mut module = context.new_module("python");
     let config: PythonConfig = PythonConfig::try_load(module.config);
 
@@ -29,8 +31,8 @@ pub fn module<'a>(context: &'a Context) -> Option<Module<'a>> {
         ""
     };
 
-    let parsed = StringFormatter::new(config.format).and_then(|formatter| {
-        formatter
+    let parsed = match StringFormatter::new(config.format) {
+        Ok(formatter) => formatter
             .map_meta(|var, _| match var {
                 "symbol" => Some(config.symbol),
                 _ => None,
@@ -39,20 +41,27 @@ pub fn module<'a>(context: &'a Context) -> Option<Module<'a>> {
                 "style" => Some(Ok(config.style)),
                 _ => None,
             })
-            .map(|variable| match variable {
-                "version" => {
-                    let version = get_python_version(context, &config)?;
-                    Some(Ok(version.trim().to_string()))
+            .async_map(|variable| {
+                let config = &config;
+                async move {
+                    match variable.as_ref() {
+                        "version" => {
+                            let version = get_python_version(context, &config).await?;
+                            Some(Ok(version.trim().to_string()))
+                        }
+                        "virtualenv" => {
+                            let virtual_env = get_python_virtual_env(context).await;
+                            virtual_env.as_ref().map(|e| Ok(e.trim().to_string()))
+                        }
+                        "pyenv_prefix" => Some(Ok(pyenv_prefix.to_string())),
+                        _ => None,
+                    }
                 }
-                "virtualenv" => {
-                    let virtual_env = get_python_virtual_env(context);
-                    virtual_env.as_ref().map(|e| Ok(e.trim().to_string()))
-                }
-                "pyenv_prefix" => Some(Ok(pyenv_prefix.to_string())),
-                _ => None,
             })
-            .parse(None)
-    });
+            .await
+            .parse(None),
+        Err(e) => Err(e),
+    };
 
     module.set_segments(match parsed {
         Ok(segments) => segments,
@@ -65,22 +74,30 @@ pub fn module<'a>(context: &'a Context) -> Option<Module<'a>> {
     Some(module)
 }
 
-fn get_python_version(context: &Context, config: &PythonConfig) -> Option<String> {
+async fn get_python_version<'a>(
+    context: &'a Context<'a>,
+    config: &'a PythonConfig<'a>,
+) -> Option<String> {
     if config.pyenv_version_name {
-        return Some(context.exec_cmd("pyenv", &["version-name"])?.stdout);
+        return Some(
+            context
+                .async_exec_cmd("pyenv", &["version-name"])
+                .await?
+                .stdout,
+        );
     };
-    let version = config
-        .python_binary
-        .0
-        .iter()
-        .find_map(|binary| context.exec_cmd(binary, &["--version"]))
+
+    let version = stream::iter(&config.python_binary.0)
+        .filter_map(|binary| context.async_exec_cmd(binary, &["--version"]))
         .map(|output| {
             if output.stdout.is_empty() {
                 output.stderr
             } else {
                 output.stdout
             }
-        })?;
+        });
+    pin_mut!(version);
+    let version = version.next().await?;
 
     format_python_version(&version)
 }
@@ -95,21 +112,29 @@ fn format_python_version(python_version: &str) -> Option<String> {
     Some(format!("v{}", version))
 }
 
-fn get_python_virtual_env(context: &Context) -> Option<String> {
-    context.get_env("VIRTUAL_ENV").and_then(|venv| {
-        get_prompt_from_venv(Path::new(&venv)).or_else(|| {
-            Path::new(&venv)
-                .file_name()
-                .map(|filename| String::from(filename.to_str().unwrap_or("")))
-        })
+async fn get_python_virtual_env<'a>(context: &'a Context<'a>) -> Option<String> {
+    let venv = context.get_env("VIRTUAL_ENV")?;
+
+    let venv_path = PathBuf::from(venv);
+
+    get_prompt_from_venv(&venv_path).await.or_else(|| {
+        venv_path
+            .file_name()
+            .map(|filename| String::from(filename.to_str().unwrap_or("")))
     })
 }
-fn get_prompt_from_venv(venv_path: &Path) -> Option<String> {
-    Ini::load_from_file(venv_path.join("pyvenv.cfg"))
-        .ok()?
-        .general_section()
-        .get("prompt")
-        .map(String::from)
+
+async fn get_prompt_from_venv(venv_path: &Path) -> Option<String> {
+    // spawning and waiting since Ini does not support async
+    let venv_path = venv_path.to_owned();
+    async_std::task::spawn(async move {
+        Ini::load_from_file(venv_path.join("pyvenv.cfg"))
+            .ok()?
+            .general_section()
+            .get("prompt")
+            .map(String::from)
+    })
+    .await
 }
 
 #[cfg(test)]

@@ -116,7 +116,7 @@ pub async fn handle<'a>(
             "perl" => perl::module(context),
             "php" => php::module(context),
             "purescript" => purescript::module(context),
-            "python" => python::module(context),
+            "python" => python::module(context).await,
             "ruby" => ruby::module(context),
             "rust" => rust::module(context).await,
             "scala" => scala::module(context),
