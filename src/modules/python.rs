@@ -79,16 +79,11 @@ async fn get_python_version<'a>(
     config: &'a PythonConfig<'a>,
 ) -> Option<String> {
     if config.pyenv_version_name {
-        return Some(
-            context
-                .async_exec_cmd("pyenv", &["version-name"])
-                .await?
-                .stdout,
-        );
+        return Some(context.exec_cmd("pyenv", &["version-name"]).await?.stdout);
     };
 
     let version = stream::iter(&config.python_binary.0)
-        .filter_map(|binary| context.async_exec_cmd(binary, &["--version"]))
+        .filter_map(|binary| context.exec_cmd(binary, &["--version"]))
         .map(|output| {
             if output.stdout.is_empty() {
                 output.stderr

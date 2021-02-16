@@ -58,7 +58,7 @@ pub async fn module<'a>(context: &'a Context<'a>) -> Option<Module<'a>> {
 }
 
 async fn get_scala_version(context: &Context<'_>) -> Option<String> {
-    let output = context.async_exec_cmd("scalac", &["-version"]).await?;
+    let output = context.exec_cmd("scalac", &["-version"]).await?;
     let scala_version = if output.stdout.is_empty() {
         output.stderr
     } else {
