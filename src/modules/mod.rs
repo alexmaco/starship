@@ -119,7 +119,7 @@ pub async fn handle<'a>(
             "python" => python::module(context).await,
             "ruby" => ruby::module(context).await,
             "rust" => rust::module(context).await,
-            "scala" => scala::module(context),
+            "scala" => scala::module(context).await,
             "shell" => shell::module(context),
             "shlvl" => shlvl::module(context),
             "singularity" => singularity::module(context),
