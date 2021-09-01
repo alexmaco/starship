@@ -46,6 +46,7 @@ pub mod openstack;
 pub mod package;
 pub mod perl;
 pub mod php;
+pub mod pony;
 pub mod purescript;
 pub mod python;
 pub mod red;
